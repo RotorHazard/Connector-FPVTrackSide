@@ -1,6 +1,6 @@
 {
     "domain": "rh_connector_trackside",
-    "name": "Connector: FPVTrackSide",
+    "name": "FPVTrackSide Connector",
     "author": "RotorHazard Team",
     "author_uri": "https://github.com/RotorHazard/RotorHazard/",
     "description": "Manages communication with FPVTrackSide including race flow control and results",
@@ -8,6 +8,5 @@
     "license": "RotorHazard",
     "license_uri": "https://github.com/RotorHazard/RotorHazard/blob/main/LICENSE",
     "version": "1.1.1",
-    "required_rhapi_version": "1.3",
-    "category": ["Race Management"]
+    "required_rhapi_version": "1.3"
 }
