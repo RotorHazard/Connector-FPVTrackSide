@@ -20,6 +20,7 @@ class TracksideConnector():
         self._rhapi.events.on(Evt.LAPS_SAVE, self.laps_save)
         self._rhapi.events.on(Evt.LAPS_CLEAR, self.laps_clear)
         self._rhapi.events.on(Evt.LAPS_RESAVE, self.laps_resave)
+        self._rhapi.events.on(Evt.RACE_LAPS_REPLACE, self.race_laps_replace)
 
 
     def initialize(self, _args):
@@ -208,6 +209,36 @@ class TracksideConnector():
 
             payload = {
                 'race_id': ts_race_id,
+                'callsign': callsign,
+                'ts_pilot_id': ts_pilot_id,
+                'laps': laps
+            }
+            self._rhapi.ui.socket_broadcast('ts_race_marshal', payload)
+
+    def race_laps_replace(self, args):
+            seat = args.get('seat')
+
+            for seat_index, run in enumerate(self._rhapi.race.laps['node_index']):
+                if seat_index == seat:
+                    laps = []
+                    for lap in run['laps']:
+                        laps.append({
+                            'deleted': lap['deleted'],
+                            'lap_time': lap['lap_time'],
+                            'lap_time_formatted': lap['lap_time_formatted'],
+                            'lap_time_stamp': lap['lap_time_stamp'],
+                        })
+
+                    pilot_id = run['pilot']['id']
+                    callsign = run['pilot']['callsign']
+                    break
+            else:
+                return False
+
+            ts_pilot_id = self._rhapi.db.pilot_attribute_value(pilot_id, 'trackside_pilot_ID', None)
+
+            payload = {
+                'race_id': self._trackside_race_id,
                 'callsign': callsign,
                 'ts_pilot_id': ts_pilot_id,
                 'laps': laps
