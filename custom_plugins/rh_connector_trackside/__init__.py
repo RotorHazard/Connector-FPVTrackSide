@@ -184,6 +184,10 @@ class TracksideConnector():
         self._trackside_race_id = None
 
     def laps_resave(self, args):
+        pilot_id = args.get('pilot_id')
+        if not pilot_id:
+            return False
+
         if args and args.get('race_id'):
             race_id = args.get('race_id')
             for run in self._rhapi.db.pilotruns_by_race(race_id):
@@ -196,14 +200,12 @@ class TracksideConnector():
                             'lap_time': lap.lap_time,
                             'lap_time_formatted': lap.lap_time_formatted,
                             'lap_time_stamp': lap.lap_time_stamp,
-                        })    
+                        })
                     break
             else:
                 return False
 
             ts_race_id = self._rhapi.db.race_attribute_value(race_id, 'trackside_race_ID')
-
-            pilot_id = args.get('pilot_id')
             callsign = self._rhapi.db.pilot_by_id(pilot_id).callsign
             ts_pilot_id = self._rhapi.db.pilot_attribute_value(pilot_id, 'trackside_pilot_ID', None)
 
@@ -220,6 +222,9 @@ class TracksideConnector():
 
             for seat_index, run in enumerate(self._rhapi.race.laps['node_index']):
                 if seat_index == seat:
+                    if not run['pilot']:
+                        return False
+
                     laps = []
                     for lap in run['laps']:
                         laps.append({
