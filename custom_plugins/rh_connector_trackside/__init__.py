@@ -7,6 +7,7 @@ from RHRace import RaceStatus
 from eventmanager import Evt
 from RHUI import UIField, UIFieldType, UIFieldSelectOption
 from RHUtils import HEAT_ID_NONE
+from Database import LapSource
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class TracksideConnector():
         self._rhapi.ui.socket_listen('ts_race_stage', self.race_stage)
         self._rhapi.ui.socket_listen('ts_race_stop', self.race_stop)
         self._rhapi.ui.socket_listen('ts_race_abort', self.race_abort)
+        self._rhapi.ui.socket_listen('ts_race_marshal_update', self.race_marshal_update)
 
         self._rhapi.fields.register_race_attribute(UIField('trackside_race_ID', "FPVTrackSide Race ID", UIFieldType.TEXT, private=True))
         self._rhapi.fields.register_pilot_attribute(UIField('trackside_pilot_ID', "Trackside Pilot ID", UIFieldType.TEXT, private=True))
@@ -213,6 +215,60 @@ class TracksideConnector():
                 'laps': laps
             }
             self._rhapi.ui.socket_broadcast('ts_race_marshal', payload)
+
+    def race_marshal_update(self, arg=None):
+        '''Apply a marshal correction pushed from FPVTrackSide to a previously saved pilot run.
+
+        NOTE: depends on a `pilotrun_alter()` method on RHAPI's DatabaseAPI that does not exist
+        yet (only `pilotrun_add()` does, which creates a new run rather than correcting an
+        existing one). See the accompanying PR description for a proposed implementation.
+        '''
+        if not arg:
+            return None
+
+        ts_race_id = arg.get('race_id')
+        ts_pilot_id = arg.get('pilot_id')
+        laps = arg.get('laps')
+
+        if not ts_race_id or not ts_pilot_id or laps is None:
+            logger.warning("Trackside marshal update missing race_id/pilot_id/laps")
+            return None
+
+        race_ids = self._rhapi.db.race_ids_by_attribute('trackside_race_ID', ts_race_id)
+        if not race_ids:
+            logger.warning("Trackside marshal update: no race found for race_id %s", ts_race_id)
+            return None
+        race_id = race_ids[0]
+
+        pilot_ids = self._rhapi.db.pilot_ids_by_attribute('trackside_pilot_ID', ts_pilot_id)
+        if not pilot_ids:
+            logger.warning("Trackside marshal update: no pilot found for pilot_id %s", ts_pilot_id)
+            return None
+        pilot_id = pilot_ids[0]
+
+        run = next((r for r in self._rhapi.db.pilotruns_by_race(race_id) if r.pilot_id == pilot_id), None)
+        if not run:
+            logger.warning("Trackside marshal update: no pilot run found for race %s / pilot %s", race_id, pilot_id)
+            return None
+
+        formatted_laps = []
+        for lap in laps:
+            lap_time = lap['lap_time']
+            formatted_laps.append({
+                'lap_time_stamp': lap['lap_time_stamp'],
+                'lap_time': lap_time,
+                'lap_time_formatted': self._rhapi.utils.format_time_to_str(lap_time),
+                'peak_rssi': lap.get('peak_rssi', None),
+                'source': lap.get('source', LapSource.API),
+                'deleted': lap.get('deleted', False),
+            })
+
+        if not self._rhapi.db.pilotrun_alter(run.id, enter_at=arg.get('enter_at'), exit_at=arg.get('exit_at'), laps=formatted_laps):
+            logger.warning("Trackside marshal update: pilotrun_alter failed for run %s", run.id)
+            return None
+
+        # Echo the confirmed laps back out so FPVTrackSide can reconcile.
+        self.laps_resave({'race_id': race_id, 'pilot_id': pilot_id})
 
     def color_setup(self, arg):
         if arg.get('channel_color'):
