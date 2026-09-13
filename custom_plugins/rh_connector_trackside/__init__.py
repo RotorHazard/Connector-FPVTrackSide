@@ -30,6 +30,8 @@ class TracksideConnector():
         self._rhapi.ui.socket_listen('ts_server_time', self.server_time)
         self._rhapi.ui.socket_listen('ts_frequency_setup', self.frequency_setup)
         self._rhapi.ui.socket_listen('ts_color_setup', self.color_setup)
+        self._rhapi.ui.socket_listen('ts_get_lean_mode', self.get_lean_mode)
+        self._rhapi.ui.socket_listen('ts_set_lean_mode', self.set_lean_mode)
 
         self._rhapi.ui.socket_listen('ts_race_stage', self.race_stage)
         self._rhapi.ui.socket_listen('ts_race_stop', self.race_stop)
@@ -44,8 +46,9 @@ class TracksideConnector():
                     desc="Reuse a single heat and never save races or rebuild results. "
                          "Much faster on Raspberry Pi 3/4 and large databases, and the "
                          "database stops growing. Lap timing and the ELRS OSD are "
-                         "unaffected. Disables marshalling and RotorHazard's own results "
-                         "pages. Requires a restart of the race to take effect.",
+                         "unaffected. Disables adaptive calibration, marshalling and "
+                         "RotorHazard's own results pages. Requires a restart of the "
+                         "race to take effect.",
                     field_type=UIFieldType.CHECKBOX),
             'ts_connector')
 
@@ -78,6 +81,26 @@ class TracksideConnector():
     def _lean_mode(self) -> bool:
         """True when the connector should avoid creating heats and saving races."""
         return self._rhapi.db.option('_ts_lean_mode') == '1'
+
+    def get_lean_mode(self, _arg=None):
+        """Return the configured mode as a Socket.IO acknowledgement."""
+        return {'lean_mode': self._lean_mode()}
+
+    def set_lean_mode(self, arg=None):
+        """Change the option between races, retaining any pending race data."""
+        if not isinstance(arg, dict) or not isinstance(arg.get('lean_mode'), bool):
+            return dict(self.get_lean_mode(), error='lean_mode must be a boolean')
+
+        lean_mode = arg['lean_mode']
+        if lean_mode == self._lean_mode():
+            return self.get_lean_mode()
+
+        if self._rhapi.race.status != RaceStatus.READY:
+            return dict(self.get_lean_mode(), error='Race must be ready before changing lean mode')
+
+        self._rhapi.db.option_set('_ts_lean_mode', '1' if lean_mode else '0')
+        self._rhapi.ui.broadcast_ui('settings')
+        return self.get_lean_mode()
 
     def _pilot_map(self):
         """callsign -> pilot, and trackside_pilot_ID -> pilot, built with 2 queries.
