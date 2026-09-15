@@ -271,45 +271,6 @@ class TracksideConnector():
 
         return race_id, pilot_id, run
 
-    def _alter_pilotrun(self, run, enter_at, exit_at, laps):
-        '''Correct an existing saved pilot run: enter/exit calibration and/or its full lap
-        list. Mirrors the same internal RHData calls the core 'resave_laps' socket handler
-        (RH's own Marshal page) uses - alter_savedPilotRace/replace_savedRaceLaps, plus the
-        same results-cache invalidation - so a plugin-driven correction is indistinguishable
-        from one made through RH's own UI.
-
-        RHAPI has no public method for this (only pilotrun_add, which creates a *new* run) -
-        reaching into rhapi._racecontext directly here, rather than depending on a new RHAPI
-        method that doesn't exist upstream, so this plugin works against a stock RH install
-        with no core changes required.
-        '''
-        rhdata = self._rhapi._racecontext.rhdata
-
-        if enter_at is not None or exit_at is not None:
-            pilotrace_data = {'pilotrace_id': run.id}
-            if enter_at is not None:
-                pilotrace_data['enter_at'] = enter_at
-            if exit_at is not None:
-                pilotrace_data['exit_at'] = exit_at
-            rhdata.alter_savedPilotRace(pilotrace_data)
-
-        if laps is not None:
-            rhdata.replace_savedRaceLaps({
-                'race_id': run.race_id,
-                'pilotrace_id': run.id,
-                'node_index': run.node_index,
-                'pilot_id': run.pilot_id,
-                'laps': laps,
-            })
-
-        race = rhdata.get_savedRaceMeta(run.race_id)
-        if race:
-            rhdata.clear_results_heat(race.heat_id)
-            rhdata.clear_results_raceClass(race.class_id)
-            rhdata.clear_results_savedRaceMeta(run.race_id)
-
-        return True
-
     def race_marshal_update(self, arg=None):
         '''Apply a marshal correction pushed from FPVTrackSide to a previously saved pilot run.'''
         if not arg:
@@ -323,7 +284,7 @@ class TracksideConnector():
             logger.warning("Trackside marshal update missing race_id/pilot_id/laps")
             return None
 
-        race_id, pilot_id, run = self._resolve_pilotrun(ts_race_id, ts_pilot_id)
+        _, _, run = self._resolve_pilotrun(ts_race_id, ts_pilot_id)
         if not run:
             return None
 
@@ -339,12 +300,12 @@ class TracksideConnector():
                 'deleted': lap.get('deleted', False),
             })
 
-        if not self._alter_pilotrun(run, arg.get('enter_at'), arg.get('exit_at'), formatted_laps):
+        # RHAPI.db.pilotrun_alter (added in RHAPI 1.7) does the calibration/lap update plus
+        # cache invalidation and fires Evt.LAPS_RESAVE itself - our own laps_resave handler
+        # (registered on that event) picks it up and echoes the confirmed laps back to
+        # FPVTrackSide, so nothing further is needed here.
+        if not self._rhapi.db.pilotrun_alter(run.id, enter_at=arg.get('enter_at'), exit_at=arg.get('exit_at'), laps=formatted_laps):
             logger.warning("Trackside marshal update: alter failed for run %s", run.id)
-            return None
-
-        # Echo the confirmed laps back out so FPVTrackSide can reconcile.
-        self.laps_resave({'race_id': race_id, 'pilot_id': pilot_id})
 
     def race_marshal_waveform(self, arg=None):
         '''Return the raw RSSI trace + calibration for a pilot run, on request, so FPVTrackSide's
