@@ -19,7 +19,6 @@ class TracksideConnector():
         # FPVTrackSide's race id for the current race, used to tag it once saved (see
         # laps_save()) - only ever written by race_stage(), not cleared on Evt.LAPS_CLEAR.
         self._trackside_race_id = None
-        self._race_saved = True
         # Sent to FPVTrackSide via server_info() so it can gate version-dependent features.
         self._plugin_version = self._load_plugin_version()
         self._lean_heat_id = None
@@ -173,17 +172,14 @@ class TracksideConnector():
 
         self.enabled = True
 
-        # Leftover-race safety net for a race that never got a clean race_stop (e.g.
-        # FPVTrackSide disconnected mid-race) - normally _race_saved is already True here.
-        if self._rhapi.race.status != RaceStatus.READY and not self._race_saved:
-            self._rhapi.race.stop() #doSave executes asynchronously, but we need it done now
+        if self._rhapi.race.status != RaceStatus.READY:
+            self._rhapi.race.stop()
             if self._lean_mode():
                 # Lean mode never persists a race, so there is nothing to flush and no
                 # results rebuild to trigger.
                 self._rhapi.race.clear()
             else:
                 self._rhapi.race.save()
-                self._race_saved = True
 
         if arg.get('p'):
             ts_pilot_callsigns = arg.get('p')
@@ -206,12 +202,11 @@ class TracksideConnector():
         if arg.get('start_time_s'):
             start_race_args['start_time_s'] = arg['start_time_s']
 
-        # Set after race.stage() returns, not before - staging can discard the previous race
-        # synchronously, and a prior version cleared this same field in response.
+        # Set trackside ID after race.stage() returns, 
+        # since staging can discard a previous race and clear this field.
         stage_result = self._rhapi.race.stage(start_race_args)
         if stage_result is not False:
             self._trackside_race_id = arg.get('race_id')
-            self._race_saved = False
 
     def _stage_lean(self, ts_pilot_callsigns, ts_pilot_ids):
         """Reuse one heat; update its slots in place. No heat/race rows are created."""
@@ -326,8 +321,9 @@ class TracksideConnector():
     def race_stop(self, arg=None):
         # Save immediately so the race is queryable right away, not just once the next race stages.
         self._rhapi.race.stop()
-        self._rhapi.race.save()
-        self._race_saved = True
+        if self._lean_mode():
+            # Lean mode never persists a race
+            self._rhapi.race.save()
 
     def race_abort(self, arg=None):
         self._rhapi.race.clear()
