@@ -26,6 +26,7 @@ class TracksideConnector():
         self._rhapi.events.on(Evt.RACE_LAP_RECORDED, self.race_lap_recorded)
         self._rhapi.events.on(Evt.LAPS_SAVE, self.laps_save)
         self._rhapi.events.on(Evt.LAPS_RESAVE, self.laps_resave)
+        self._rhapi.events.on(Evt.RACE_LAPS_REPLACE, self.race_laps_replace)
 
     def _load_plugin_version(self):
         try:
@@ -218,6 +219,10 @@ class TracksideConnector():
             })
 
     def laps_resave(self, args):
+        pilot_id = args.get('pilot_id')
+        if not pilot_id:
+            return False
+
         if args and args.get('race_id'):
             race_id = args.get('race_id')
             for run in self._rhapi.db.pilotruns_by_race(race_id):
@@ -230,14 +235,12 @@ class TracksideConnector():
                             'lap_time': lap.lap_time,
                             'lap_time_formatted': lap.lap_time_formatted,
                             'lap_time_stamp': lap.lap_time_stamp,
-                        })    
+                        })
                     break
             else:
                 return False
 
             ts_race_id = self._rhapi.db.race_attribute_value(race_id, 'trackside_race_ID')
-
-            pilot_id = args.get('pilot_id')
             callsign = self._rhapi.db.pilot_by_id(pilot_id).callsign
             ts_pilot_id = self._rhapi.db.pilot_attribute_value(pilot_id, 'trackside_pilot_ID', None)
 
@@ -340,6 +343,42 @@ class TracksideConnector():
             'exit_at': run.exit_at,
             'race_start_time': race.start_time,
         }
+
+    def race_laps_replace(self, args):
+        '''Relay a lap correction made on RH's own (unsaved, in-progress) live race - via its
+        native web marshal page - out to FPVTrackSide. Mirror image of race_marshal_update,
+        which brings corrections the other way once the race is saved.'''
+        seat = args.get('seat')
+
+        for seat_index, run in enumerate(self._rhapi.race.laps['node_index']):
+            if seat_index == seat:
+                if not run['pilot']:
+                    return False
+
+                laps = []
+                for lap in run['laps']:
+                    laps.append({
+                        'deleted': lap['deleted'],
+                        'lap_time': lap['lap_time'],
+                        'lap_time_formatted': lap['lap_time_formatted'],
+                        'lap_time_stamp': lap['lap_time_stamp'],
+                    })
+
+                pilot_id = run['pilot']['id']
+                callsign = run['pilot']['callsign']
+                break
+        else:
+            return False
+
+        ts_pilot_id = self._rhapi.db.pilot_attribute_value(pilot_id, 'trackside_pilot_ID', None)
+
+        payload = {
+            'race_id': self._trackside_race_id,
+            'callsign': callsign,
+            'ts_pilot_id': ts_pilot_id,
+            'laps': laps
+        }
+        self._rhapi.ui.socket_broadcast('ts_race_marshal', payload)
 
     def color_setup(self, arg):
         if arg.get('channel_color'):
