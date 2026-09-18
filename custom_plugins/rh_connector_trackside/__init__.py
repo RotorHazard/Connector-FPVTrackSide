@@ -55,17 +55,15 @@ class TracksideConnector():
         self._rhapi.ui.socket_listen('ts_race_marshal_waveform', self.race_marshal_waveform)
 
         self._rhapi.fields.register_race_attribute(UIField('trackside_race_ID', "FPVTrackSide Race ID", UIFieldType.TEXT, private=True))
-        self._rhapi.fields.register_pilot_attribute(UIField('trackside_pilot_ID', "Trackside Pilot ID", UIFieldType.TEXT, private=True))
+        self._rhapi.fields.register_pilot_attribute(UIField('trackside_pilot_ID', "Trackside Pilot ID", UIFieldType.TEXT, private=False))
 
         self._rhapi.ui.register_panel('ts_connector', "FPVTrackSide Connector", 'settings', order=0)
         self._rhapi.fields.register_option(
-            UIField('_ts_lean_mode', "Lean mode (do not save races)",
-                    desc="Reuse a single heat and never save races or rebuild results. "
-                         "Much faster on Raspberry Pi 3/4 and large databases, and the "
-                         "database stops growing. Lap timing and the ELRS OSD are "
-                         "unaffected. Disables adaptive calibration, marshalling and "
-                         "RotorHazard's own results pages. Requires a restart of the "
-                         "race to take effect.",
+            UIField('_ts_lean_mode', "Prevent Race Saving",
+                    desc="Reuse a single heat without saving locally or building results."
+                         "Improves responsiveness on low-performance server hardware."
+                         "Disables adaptive calibration, marshaling, and results in RH."
+                         "Takes effect on next race start.",
                     field_type=UIFieldType.CHECKBOX),
             'ts_connector')
 
@@ -250,6 +248,8 @@ class TracksideConnector():
     def _stage_full(self, ts_pilot_callsigns, ts_pilot_ids, race_number, round_number, bracket):
         """Original behaviour: a new heat per race, races saved, results rebuilt."""
         heat = self._rhapi.db.heat_add()
+        by_callsign, by_ts_id = self._pilot_map()
+        
         if race_number and race_number > 0:
             if bracket:
                 heat_name = "{} {}: {} {} · {} {} · {} {}".format(
