@@ -272,24 +272,18 @@ class TracksideConnector():
         added_pilot = False
         for idx, ts_pilot_callsign in enumerate(ts_pilot_callsigns):
             ts_id = ts_pilot_ids[idx] if ts_pilot_ids and idx < len(ts_pilot_ids) else None
-            for rh_pilot in rh_pilots:
-                rh_pilot_ts_id = self._rhapi.db.pilot_attribute_value(rh_pilot.id, 'trackside_pilot_ID', None)
-                if ts_id and rh_pilot_ts_id == ts_id:
-                    pilot = rh_pilot
-                    break
-                else:
-                    if rh_pilot.callsign == ts_pilot_callsign:
-                        pilot = rh_pilot
-                        self._rhapi.db.pilot_alter(pilot.id, attributes={
-                            'trackside_pilot_ID': ts_id
-                        })
-                        break
-            else:
-                new_pilot = self._rhapi.db.pilot_add(name=ts_pilot_callsign, callsign=ts_pilot_callsign)
-                self._rhapi.db.pilot_alter(new_pilot.id, attributes={
+
+            pilot = by_ts_id.get(ts_id) if ts_id else None
+            if pilot is None:
+                pilot = by_callsign.get(ts_pilot_callsign)
+                if pilot is not None and ts_id:
+                    self._rhapi.db.pilot_alter(pilot.id, attributes={'trackside_pilot_ID': ts_id})
+            if pilot is None:
+                pilot = self._rhapi.db.pilot_add(name=ts_pilot_callsign, callsign=ts_pilot_callsign)
+                self._rhapi.db.pilot_alter(pilot.id, attributes={
                     'trackside_pilot_ID': ts_id
                 })
-                pilot = new_pilot
+                by_callsign[ts_pilot_callsign] = pilot
                 added_pilot = True
 
             for slot in slots:
