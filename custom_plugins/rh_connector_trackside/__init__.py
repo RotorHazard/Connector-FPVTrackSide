@@ -51,6 +51,7 @@ class TracksideConnector():
         self._rhapi.ui.socket_listen('ts_race_stage', self.race_stage)
         self._rhapi.ui.socket_listen('ts_race_stop', self.race_stop)
         self._rhapi.ui.socket_listen('ts_race_abort', self.race_abort)
+        self._rhapi.ui.socket_listen('ts_race_reset', self.race_reset)
         self._rhapi.ui.socket_listen('ts_race_marshal_update', self.race_marshal_update)
         self._rhapi.ui.socket_listen('ts_race_marshal_waveform', self.race_marshal_waveform)
 
@@ -337,6 +338,22 @@ class TracksideConnector():
         self._rhapi.db.heat_delete(current_heat)
         self._rhapi.ui.broadcast_heats()
 
+    def race_reset(self, arg=None):
+        '''FPVTrackSide reset this race, discarding its laps. Unlink the RH races saved for it, so
+        marshalling and laps_resave only ever reach the attempt FPVTrackSide still holds - a
+        restarted race keeps its FPVTrackSide ID, so otherwise every attempt shares it.'''
+        if not arg:
+            return
+
+        ts_race_id = arg.get('race_id')
+        if not ts_race_id:
+            return
+
+        for race_id in self._rhapi.db.race_ids_by_attribute('trackside_race_ID', ts_race_id):
+            self._rhapi.db.race_alter(race_id, attributes = {
+                'trackside_race_ID': None
+            })
+
     def laps_save(self, args):
         race_id = args.get('race_id')
         if race_id and self._trackside_race_id:
@@ -367,6 +384,10 @@ class TracksideConnector():
                 return False
 
             ts_race_id = self._rhapi.db.race_attribute_value(race_id, 'trackside_race_ID')
+            if not ts_race_id:
+                # Not linked to FPVTrackSide, e.g. an attempt it has since reset.
+                return False
+
             callsign = self._rhapi.db.pilot_by_id(pilot_id).callsign
             ts_pilot_id = self._rhapi.db.pilot_attribute_value(pilot_id, 'trackside_pilot_ID', None)
 
@@ -386,7 +407,9 @@ class TracksideConnector():
         if not race_ids:
             logger.warning("Trackside marshal: no race found for race_id %s", ts_race_id)
             return None, None, None
-        race_id = race_ids[0]
+        # A restarted TS race keeps its ID but stages a new RH race, so several can match.
+        # The newest is the attempt whose laps TS actually holds.
+        race_id = max(race_ids)
 
         pilot_ids = self._rhapi.db.pilot_ids_by_attribute('trackside_pilot_ID', ts_pilot_id)
         if not pilot_ids:
