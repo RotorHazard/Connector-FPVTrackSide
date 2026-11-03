@@ -8,5 +8,5 @@
 	"license": "RotorHazard",
 	"license_uri": "https://github.com/RotorHazard/RotorHazard/blob/main/LICENSE",
 	"version": "1.2.0",
-	"required_rhapi_version": "1.10"
+	"required_rhapi_version": "1.7"
 }
